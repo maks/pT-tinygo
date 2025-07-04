@@ -81,7 +81,9 @@ var (
 	colorBackground = color.RGBA{0, 0, 0, 255}       // Black
 	colorGrid       = color.RGBA{50, 50, 50, 255}    // Dark gray
 	colorText       = color.RGBA{255, 255, 255, 255} // White
-	colorGameOver   = color.RGBA{255, 0, 0, 255}     // Red
+	colorRed        = color.RGBA{255, 0, 0, 255}     // Red
+	colorBlue       = color.RGBA{0, 0, 255, 255}     // Blue
+	colorGreen      = color.RGBA{0, 255, 0, 255}     // Green
 
 	// Input debouncing
 	lastButtonState  = make(map[machine.Pin]bool)
@@ -286,7 +288,7 @@ func processInputs() { // Check for start button press
 		display.FillRectangle(0, 170, 319, 20, colorBackground)
 		// display message
 		message := "START PRESSED: " + strconv.Itoa(counter)
-		tinyfont.WriteLine(&display, &freemono.Regular9pt7b, 20, 180, message, colorText)
+		tinyfont.WriteLine(&display, &freemono.Regular9pt7b, 20, 180, message, colorBlue)
 		display.Display()
 	}
 }
