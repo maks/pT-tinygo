@@ -1,0 +1,58 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"cortex-debug.objdumpPath": "/path/to/arm-gnu-toolchain-12.3.rel1-x86_64-arm-none-eabi/bin/arm-none-eabi-objdump",
+		"cortex-debug.gdbPath": "gdb-multiarch",
+		"cortex-debug.openocdPath": "/path/to/openocd/src/openocd",
+		"cortex-debug.variableUseNaturalFormat": false,
+		"editor.formatOnSaveMode": "file",
+		"editor.formatOnSave": true,
+	},
+	"launch": {
+		"version": "0.2.0",
+		"configurations": [
+			{
+				"type": "cortex-debug",
+				"servertype": "openocd",
+				"request": "launch",
+				"name": "tinygo-debug",
+				// stops debugger pausing at entry point each time
+				"runToEntryPoint": false,
+				"executable": "${workspaceRoot}/out.elf",
+				"configFiles": [
+					"interface/cmsis-dap.cfg",
+					"target/rp2040.cfg"
+				],
+				"preLaunchTask": "tinygo build task",
+				"cwd": "${workspaceRoot}",
+				"gdbPath": "gdb-multiarch",
+				"searchDir": [
+					"/path/to/openocd/tcl"
+				],
+				"openOCDLaunchCommands": [
+					"adapter speed 5000",
+				],
+				"svdFile": "${env:PICO_SDK_PATH}/src/rp2040/hardware_regs/rp2040.svd"
+			}
+		]
+	},
+	"tasks": {
+		"version": "2.0.0",
+		"tasks": [
+			{
+				"label": "tinygo build task",
+				"type": "shell",
+				"command": "tinygo build -C ./pT-tinygo -o ../out.elf -target pico -size short -opt 0 -serial uart ${file}",
+				"problemMatcher": [],
+				"group": {
+					"kind": "build",
+					"isDefault": true
+				}
+			}
+		]
+	}
+}
