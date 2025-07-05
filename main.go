@@ -361,6 +361,7 @@ func initSound() *piolib.I2S {
 		return nil
 	}
 
+	// Initialize I2S with the PIO state machine
 	i2s, err := piolib.NewI2S(sm, AUDIO_SDATA, AUDIO_BCLK)
 	if err != nil {
 		println("Failed to initialize I2S:", err.Error())
@@ -372,6 +373,18 @@ func initSound() *piolib.I2S {
 	if err != nil {
 		println("Warning: Failed to set sample rate:", err.Error())
 	}
+
+	// Debug information
+	clockHz := uint64(machine.CPUFrequency())
+	targetBitClock := uint64(SAMPLE_RATE * 64) // 32 bits per channel * 2 channels
+	
+	// The SetSampleFrequency method already calculates and sets the appropriate
+	// clock divider for the PIO state machine to achieve the desired sample rate.
+	// It uses pio.ClkDivFromFrequency internally to handle the calculation.
+	println("System clock:", clockHz/1000000, "MHz")
+	println("Target bit clock:", targetBitClock/1000, "kHz")
+	println("Sample rate:", SAMPLE_RATE, "Hz")
+
 	println("I2S initialized at", SAMPLE_RATE, "Hz")
 
 	// Sine wave data (32 samples for one period)
