@@ -13,6 +13,9 @@ import (
 	"tinygo.org/x/drivers/st7789"
 	"tinygo.org/x/tinyfont"
 	"tinygo.org/x/tinyfont/freemono"
+
+	pio "github.com/tinygo-org/pio/rp2-pio"
+	"github.com/tinygo-org/pio/rp2-pio/piolib"
 )
 
 // Display configuration
@@ -65,6 +68,8 @@ const (
 	AUDIO_SDATA   = 17
 	AUDIO_BCLK    = 18 // BCLK and LRCLK HAVE to be consecutive
 	AUDIO_LRCLK   = 19
+	NUM_SAMPLES   = 32 // Number of samples in our sine wave
+	NUM_BLOCKS    = 4  // Number of blocks to buffer
 )
 
 // Battery voltage pin
@@ -90,6 +95,14 @@ var (
 	lastDebounceTime = make(map[machine.Pin]int64)
 	buttonState      = make(map[machine.Pin]bool)
 )
+
+// sine wave data
+var sine []int16 = []int16{
+	6392, 12539, 18204, 23169, 27244, 30272, 32137, 32767, 32137,
+	30272, 27244, 23169, 18204, 12539, 6392, 0, -6393, -12540,
+	-18205, -23170, -27245, -30273, -32138, -32767, -32138, -30273, -27245,
+	-23170, -18205, -12540, -6393, -1,
+}
 
 // Check if a button is pressed (with debouncing)
 func isButtonPressed(pin machine.Pin) bool {
@@ -290,5 +303,44 @@ func processInputs() { // Check for start button press
 		message := "START PRESSED: " + strconv.Itoa(counter)
 		tinyfont.WriteLine(&display, &freemono.Regular9pt7b, 20, 180, message, colorBlue)
 		display.Display()
+		i2s := initSound()
+
+		playTone(i2s)
+	}
+}
+
+func initSound() *piolib.I2S {
+	time.Sleep(time.Millisecond * 500)
+
+	sm, _ := pio.PIO0.ClaimStateMachine()
+	i2s, err := piolib.NewI2S(sm, AUDIO_SDATA, AUDIO_BCLK)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	i2s.SetSampleFrequency(44100)
+	return i2s
+}
+
+// Play a tone using PIO
+// example from https://github.com/tinygo-org/pio/blob/master/rp2-pio/examples/i2s/main.go
+func playTone(i2s *piolib.I2S) {
+	// The amp on the picoTracker makes a VERY high output level so we need to reduce the volume alot
+	// Volume control - reduce amplitude to 1% of original
+	volume := 0.01 // 1% volume
+
+	data := make([]uint32, NUM_SAMPLES*NUM_BLOCKS)
+	for i := 0; i < NUM_SAMPLES*NUM_BLOCKS; i++ {
+		// Scale down the amplitude by multiplying with volume factor
+		scaledSample := int16(float64(sine[i%NUM_SAMPLES]) * volume)
+		// Pack the scaled sample into both left and right channels
+		data[i] = uint32(scaledSample) | uint32(scaledSample)<<16
+	}
+
+	// Play the sine wave for 2sec then off for 5sec
+	for {
+		for i := 0; i < 50; i++ {
+			i2s.WriteStereo(data)
+		}
 	}
 }
