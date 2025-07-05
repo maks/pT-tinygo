@@ -6,7 +6,6 @@ package main
 import (
 	"image/color"
 	"machine"
-	"math/rand"
 	"strconv"
 	"time"
 
@@ -52,24 +51,21 @@ const (
 	INPUT_DOWN  = machine.Pin(9)
 	INPUT_RIGHT = machine.Pin(10)
 	INPUT_UP    = machine.Pin(11)
-	INPUT_LT    = machine.Pin(12)
-	INPUT_B     = machine.Pin(13)
-	INPUT_A     = machine.Pin(14)
-	INPUT_RT    = machine.Pin(15)
+	INPUT_ALT   = machine.Pin(12)
+	INPUT_EDIT  = machine.Pin(13)
+	INPUT_ENTER = machine.Pin(14)
+	INPUT_NAV   = machine.Pin(15)
 	INPUT_PLAY  = machine.Pin(16)
 )
 
-// Audio pins
+// Audio configuration
 const (
-	AUDIO_PIO     = 0
-	AUDIO_SM      = 0
-	AUDIO_DMA     = 0
-	AUDIO_DMA_IRQ = 0
-	AUDIO_SDATA   = 17
-	AUDIO_BCLK    = 18 // BCLK and LRCLK HAVE to be consecutive
-	AUDIO_LRCLK   = 19
-	NUM_SAMPLES   = 32 // Number of samples in our sine wave
-	NUM_BLOCKS    = 4  // Number of blocks to buffer
+	AUDIO_SDATA = 17
+	AUDIO_BCLK  = 18 // BCLK and LRCLK HAVE to be consecutive
+	AUDIO_LRCLK = 19
+	NUM_SAMPLES = 32    // Number of samples in one sine wave period
+	NUM_BLOCKS  = 8     // Number of blocks to buffer
+	SAMPLE_RATE = 44100 // Standard CD quality sample rate
 )
 
 // Battery voltage pin
@@ -102,6 +98,19 @@ var sine []int16 = []int16{
 	30272, 27244, 23169, 18204, 12539, 6392, 0, -6393, -12540,
 	-18205, -23170, -27245, -30273, -32138, -32767, -32138, -30273, -27245,
 	-23170, -18205, -12540, -6393, -1,
+}
+
+// Update display with audio status
+func updateAudioStatusDisplay() {
+	display.FillRectangle(0, 190, 319, 20, colorBackground)
+	statusText := "Audio: PLAYING"
+	statusColor := colorGreen
+	if !isAudioPlaying {
+		statusText = "Audio: STOPPED"
+		statusColor = colorRed
+	}
+	tinyfont.WriteLine(&display, &freemono.Regular9pt7b, 20, 200, statusText, statusColor)
+	display.Display()
 }
 
 // Check if a button is pressed (with debouncing)
@@ -239,10 +248,10 @@ func setupButtons() {
 	INPUT_RIGHT.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
 	INPUT_UP.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
 	INPUT_DOWN.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
-	INPUT_A.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
-	INPUT_B.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
-	INPUT_LT.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
-	INPUT_RT.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+	INPUT_ENTER.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+	INPUT_EDIT.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+	INPUT_NAV.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+	INPUT_ALT.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
 	INPUT_PLAY.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
 }
 
@@ -262,10 +271,6 @@ func main() {
 	setupButtons()
 	println("Buttons setup complete")
 
-	// Seed random number generator
-	rand.Seed(time.Now().UnixNano())
-	println("Random seed initialized")
-
 	// Pre-clear the screen once before entering the loop
 	display.FillScreen(colorBackground)
 	display.Display()
@@ -273,20 +278,41 @@ func main() {
 	// Draw welcome message
 	tinyfont.WriteLine(&display, &freemono.Regular12pt7b, 40, 100, "picoTracker", colorText)
 	tinyfont.WriteLine(&display, &freemono.Regular9pt7b, 20, 150, "welcome from TinyGo!", colorText)
-	tinyfont.WriteLine(&display, &freemono.Regular9pt7b, 20, 180, "Press START to play", colorText)
+	tinyfont.WriteLine(&display, &freemono.Regular9pt7b, 20, 180, "Press PLAY to start", colorText)
 	display.Display()
 
 	time.Sleep(200 * time.Millisecond)
 
 	println("Starting main loop")
 
+	// Initialize audio state tracking
+	var lastAudioState = isAudioPlaying
+	updateAudioStatusDisplay()
+
+	initSound()
+
 	// Main loop
 	for {
 		// Process button inputs first
 		processInputs()
 
-		// Long delay to prevent CPU hogging
-		time.Sleep(16 * time.Millisecond)
+		// Update display if audio state changed
+		if isAudioPlaying != lastAudioState {
+			updateAudioStatusDisplay()
+			lastAudioState = isAudioPlaying
+		}
+
+		// Handle any audio state updates (non-blocking)
+		select {
+		case state := <-audioStateChan:
+			// Handle audio state changes if needed
+			_ = state // Use the state if needed
+		default:
+			// No audio state changes
+		}
+
+		// Fixed frame rate delay
+		time.Sleep(32 * time.Millisecond) // ~30 FPS
 	}
 }
 
@@ -303,44 +329,122 @@ func processInputs() { // Check for start button press
 		message := "START PRESSED: " + strconv.Itoa(counter)
 		tinyfont.WriteLine(&display, &freemono.Regular9pt7b, 20, 180, message, colorBlue)
 		display.Display()
-		i2s := initSound()
 
-		playTone(i2s)
+		// Toggle audio playback
+		toggleAudio()
 	}
 }
 
-func initSound() *piolib.I2S {
-	time.Sleep(time.Millisecond * 500)
+// Global buffer for audio data to avoid allocations
+var (
+	isAudioPlaying    = false
+	audioPlaybackChan = make(chan bool, 1)
+	audioStateChan    = make(chan bool, 1) // For non-blocking state updates
+	audioI2S          *piolib.I2S
+	audioBuffer       []uint32
+)
 
-	sm, _ := pio.PIO0.ClaimStateMachine()
-	i2s, err := piolib.NewI2S(sm, AUDIO_SDATA, AUDIO_BCLK)
+// Initialize audio system
+func initSound() *piolib.I2S {
+	time.Sleep(100 * time.Millisecond) // Short delay for hardware to stabilize
+
+	// Print debug info
+	println("Initializing audio system...")
+	println("Sample rate:", SAMPLE_RATE, "Hz")
+	println("Sine wave period:", NUM_SAMPLES, "samples")
+	println("Buffer size:", NUM_SAMPLES*8, "samples")
+
+	// Initialize PIO state machine and I2S interface
+	sm, err := pio.PIO0.ClaimStateMachine()
 	if err != nil {
-		panic(err.Error())
+		println("Failed to claim state machine:", err.Error())
+		return nil
 	}
 
-	i2s.SetSampleFrequency(44100)
+	i2s, err := piolib.NewI2S(sm, AUDIO_SDATA, AUDIO_BCLK)
+	if err != nil {
+		println("Failed to initialize I2S:", err.Error())
+		return nil
+	}
+
+	// Set the sample rate with error checking
+	err = i2s.SetSampleFrequency(SAMPLE_RATE)
+	if err != nil {
+		println("Warning: Failed to set sample rate:", err.Error())
+	}
+	println("I2S initialized at", SAMPLE_RATE, "Hz")
+
+	// Sine wave data (32 samples for one period)
+	var sine = [...]int16{
+		6392, 12539, 18204, 23169, 27244, 30272, 32137, 32767, 32137,
+		30272, 27244, 23169, 18204, 12539, 6392, 0, -6393, -12540,
+		-18205, -23170, -27245, -30273, -32138, -32767, -32138, -30273, -27245,
+		-23170, -18205, -12540, -6393, -1,
+	}
+
+	// Initialize the buffer only once
+	if audioBuffer == nil {
+		totalSamples := NUM_SAMPLES * 8 // 8 periods of the sine wave
+		println("Allocating audio buffer with", totalSamples, "samples")
+		audioBuffer = make([]uint32, totalSamples)
+
+		// Fill the buffer with repeated periods of the sine wave
+		for i := 0; i < totalSamples; i++ {
+			// Scale down the amplitude (volume control)
+			sample := int16((int32(sine[i%NUM_SAMPLES]) * 1) / 100) // 1% volume
+			// Pack sample into both left and right channels
+			audioBuffer[i] = uint32(uint16(sample)) | (uint32(uint16(sample)) << 16)
+		}
+
+		println("Audio buffer initialized with", len(audioBuffer), "samples")
+	}
+
+	// Store the I2S interface globally
+	audioI2S = i2s
+
+	// Start the audio playback goroutine
+	go audioPlaybackLoop()
+
 	return i2s
 }
 
-// Play a tone using PIO
-// example from https://github.com/tinygo-org/pio/blob/master/rp2-pio/examples/i2s/main.go
-func playTone(i2s *piolib.I2S) {
-	// The amp on the picoTracker makes a VERY high output level so we need to reduce the volume alot
-	// Volume control - reduce amplitude to 1% of original
-	volume := 0.01 // 1% volume
-
-	data := make([]uint32, NUM_SAMPLES*NUM_BLOCKS)
-	for i := 0; i < NUM_SAMPLES*NUM_BLOCKS; i++ {
-		// Scale down the amplitude by multiplying with volume factor
-		scaledSample := int16(float64(sine[i%NUM_SAMPLES]) * volume)
-		// Pack the scaled sample into both left and right channels
-		data[i] = uint32(scaledSample) | uint32(scaledSample)<<16
+// Audio playback loop
+func audioPlaybackLoop() {
+	// Pre-calculate buffer size
+	bufferSize := len(audioBuffer)
+	if bufferSize == 0 {
+		println("Error: Audio buffer not initialized")
+		return
 	}
 
-	// Play the sine wave for 2sec then off for 5sec
 	for {
-		for i := 0; i < 50; i++ {
-			i2s.WriteStereo(data)
+		// Wait for playback to be enabled
+		if !isAudioPlaying {
+			if !<-audioPlaybackChan {
+				continue
+			}
+		}
+
+		// Play audio as long as isAudioPlaying is true
+		for isAudioPlaying {
+			// Write the audio buffer
+			_, err := audioI2S.WriteStereo(audioBuffer)
+			if err != nil {
+				// Non-blocking error reporting
+				select {
+				case audioStateChan <- false: // Signal error state
+				default:
+				}
+				time.Sleep(time.Millisecond)
+				continue
+			}
 		}
 	}
+}
+
+// Toggle audio playback
+func toggleAudio() {
+	isAudioPlaying = !isAudioPlaying
+	// Send signal to audio goroutine
+	audioPlaybackChan <- isAudioPlaying
 }
