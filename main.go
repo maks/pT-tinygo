@@ -174,7 +174,7 @@ func setupPTDebugUART() {
 		RX: rxPin,
 	})
 
-	// Redirect standard output to UART0
+	// Redirect standard output to UART1
 	machine.Serial = uart1
 	println("UART ready")
 }
@@ -377,7 +377,7 @@ func initSound() *piolib.I2S {
 	// Debug information
 	clockHz := uint64(machine.CPUFrequency())
 	targetBitClock := uint64(SAMPLE_RATE * 64) // 32 bits per channel * 2 channels
-	
+
 	// The SetSampleFrequency method already calculates and sets the appropriate
 	// clock divider for the PIO state machine to achieve the desired sample rate.
 	// It uses pio.ClkDivFromFrequency internally to handle the calculation.
