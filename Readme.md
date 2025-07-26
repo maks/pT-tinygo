@@ -1,6 +1,8 @@
 # pT Tests
 
-Basic example of how to do an alternative firmware for the picoTracker using TinyGo.
+Basic example of how to do an alternative firmware for the [picoTracker](https://xiphonics.com/) using TinyGo.
+
+The official firmware for the picoTracker can be [found here](https://github.com/xiphonics/picotracker).
 
 ## Setup
 
@@ -36,7 +38,7 @@ tinygo flash
 
 See docs/example.code-workspace for an example of how to run in VSCode under openocd+gdb via a picoprobe instead of needing to constantly flash a uf2 manually via mounting as usbdrive.
 
-Use normal `F5` to build and debug in VSCode.
+Use normal `F5` to build and run under the debugger the default `main.go` in VSCode.
 
 ## Required tinygo dependencies
 
