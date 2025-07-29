@@ -46,7 +46,7 @@
 			{
 				"label": "tinygo build task",
 				"type": "shell",
-				"command": "tinygo build -C ./pT-tinygo -o ../out.elf -target pico -size short -opt 0 -serial uart ${file}",
+				"command": "tinygo build -C ./pT-tinygo -o ../out.elf -target pico -size short -serial uart ${file}",
 				"problemMatcher": [],
 				"group": {
 					"kind": "build",
